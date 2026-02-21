@@ -3,3 +3,5 @@ supabase
 pandas
 fpdf2
 reportlab
+xlsxwriter
+openpyxl
