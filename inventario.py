@@ -7,7 +7,7 @@ class ModuloInventario:
         self.db = db
 
     def generar_pdf_inventario(self, datos):
-        """Genera HTML para impresión"""
+        """Genera HTML para impresión (Reporte de Inventario)"""
         fecha_actual = pd.Timestamp.now().strftime("%d/%m/%Y %H:%M")
         filas = ""
         total_valor = 0
@@ -60,7 +60,7 @@ class ModuloInventario:
     def render(self):
         st.header("📦 Inventario CIR")
         
-        # --- FORMULARIO DE REGISTRO ---
+        # --- FORMULARIO DE REGISTRO (SIN PRECIO DE VENTA) ---
         with st.expander("➕ Registrar Nuevo Producto", expanded=False):
             with st.form("form_nuevo_producto", clear_on_submit=True):
                 col1, col2 = st.columns(2)
@@ -72,32 +72,32 @@ class ModuloInventario:
                 stock = c2.number_input("Stock Inicial", min_value=0, step=1)
                 s_min = c3.number_input("Stock Mínimo", min_value=0, step=1)
 
-                # Cálculos P5, P7, P10 discretos
-                if costo > 0:
-                    p5, p7, p10 = costo * 1.05, costo * 1.07, costo * 1.10
-                    st.caption(f"💡 Sugerencias de Venta: **P5:** ${p5:.2f} | **P7:** ${p7:.2f} | **P10:** ${p10:.2f}")
-
-                precio_final = st.number_input("Precio de Venta Final ($)", min_value=0.0, format="%.2f")
+                # Cálculos automáticos internos
+                p5, p7, p10 = costo * 1.05, costo * 1.07, costo * 1.10
                 
-                submit = st.form_submit_button("Guardar en Base de Datos", use_container_width=True)
+                if costo > 0:
+                    st.info(f"💡 **Información de Margen:** Al guardar, el sistema asignará automáticamente el precio de venta basado en el margen P10: **${p10:.2f}**")
+                    st.caption(f"Referencia: P5: ${p5:.2f} | P7: ${p7:.2f}")
+
+                submit = st.form_submit_button("Guardar Producto", use_container_width=True)
                 
                 if submit:
-                    if nombre and precio_final > 0:
+                    if nombre and costo > 0:
                         nuevo_p = {
                             "nombre": nombre,
                             "barcode": barcode,
                             "costo": costo,
                             "stock": stock,
                             "stock_minimo": s_min,
-                            "precio_venta": precio_final
+                            "precio_venta": p10  # Se guarda automáticamente con el 10% de ganancia
                         }
                         self.db.insert("productos", nuevo_p)
-                        st.success(f"✅ {nombre} añadido al inventario.")
+                        st.success(f"✅ {nombre} registrado exitosamente con margen P10.")
                         st.rerun()
                     else:
-                        st.warning("⚠️ Nombre y Precio son obligatorios.")
+                        st.warning("⚠️ El nombre y el costo son obligatorios.")
 
-        # --- FILTROS Y BUSCADOR ---
+        # --- FILTROS Y LISTADO ---
         productos = self.db.fetch("productos")
         
         col_bus, col_print = st.columns([3, 1])
@@ -108,7 +108,6 @@ class ModuloInventario:
 
         query = col_bus.text_input("🔍 Buscar por nombre o barcode...").lower()
 
-        # --- LISTADO ---
         if productos:
             bajos = [p for p in productos if int(p.get('stock') or 0) <= int(p.get('stock_minimo') or 0)]
             if bajos:
@@ -132,13 +131,12 @@ class ModuloInventario:
                         c1.caption(f"Barcode: {p.get('barcode', 'N/A')} | Costo: ${float(p.get('costo') or 0):.2f}")
                         
                         c2.write(f"Stock: `{stock_actual}`")
-                        c2.write(f"Venta: **${float(p.get('precio_venta') or 0):.2f}**")
+                        # En el listado sí mostramos el precio de venta para que el vendedor lo sepa
+                        c2.write(f"Venta (P10): **${float(p.get('precio_venta') or 0):.2f}**")
                         
                         with c3:
-                            # Botón de edición (lógica de backend pendiente)
                             st.button("📝 Editar", key=f"btn_inv_{p.get('id')}")
 
-        # Ejecutor de impresión HTML
         if "print_inv" in st.session_state:
             components.html(st.session_state.print_inv, height=0, width=0)
             del st.session_state.print_inv
