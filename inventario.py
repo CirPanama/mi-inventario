@@ -7,7 +7,7 @@ class ModuloInventario:
         self.db = db
 
     def generar_pdf_inventario(self, datos):
-        """Genera HTML para impresión"""
+        """Genera HTML para impresión (Tu código actual)"""
         fecha_actual = pd.Timestamp.now().strftime("%d/%m/%Y %H:%M")
         filas = ""
         total_valor = 0
@@ -59,6 +59,74 @@ class ModuloInventario:
 
     def render(self):
         st.header("📦 Inventario CIR")
+        
+       # --- SECCIÓN DE REGISTRO DE PRODUCTO CON CÁLCULOS P5, P7, P10 ---
+        with st.expander("➕ Registrar Nuevo Producto", expanded=False):
+            with st.form("form_nuevo_producto", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                nombre = col1.text_input("Nombre del Producto")
+                barcode = col2.text_input("Código de Barras (Barcode)")
+                
+                c1, c2, c3 = st.columns(3)
+                costo = c1.number_input("Costo de Compra ($)", min_value=0.0, format="%.2f")
+                stock = c2.number_input("Stock Inicial", min_value=0, step=1)
+                s_min = c3.number_input("Stock Mínimo", min_value=0, step=1)
+
+                st.markdown("---")
+                st.write("💡 **Sugerencias de Precio (Margen CIR):**")
+                
+                # Cálculos automáticos
+                p5 = costo * 1.05
+                p7 = costo * 1.07
+                p10 = costo * 1.10
+                
+                cp1, cp2, cp3 = st.columns(3)
+                cp1.info(f"**P5 (5%):** ${p5:.2f}")
+                cp2.info(f"**P7 (7%):** ${p7:.2f}")
+                cp3.info(f"**P10 (10%):** ${p10:.2f}")
+                
+                precio_final = st.number_input("Precio de Venta Final ($)", min_value=0.0, format="%.2f", help="Puedes usar una de las sugerencias arriba")
+                
+                submit = st.form_submit_button("Guardar Producto", use_container_width=True)
+                
+                if submit:
+                    if nombre and precio_final > 0:
+                        nuevo_p = {
+                            "nombre": nombre,
+                            "barcode": barcode,
+                            "costo": costo, # Guardamos el costo para reportes de utilidad
+                            "stock": stock,
+                            "stock_minimo": s_min,
+                            "precio_venta": precio_final
+                        }
+                        self.db.insert("productos", nuevo_p)
+                        st.success(f"✅ {nombre} registrado con éxito.")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Debes ingresar nombre y precio de venta.")
+
+        # --- SECCIÓN DE INGRESO/ACTUALIZACIÓN DE STOCK ---
+        with st.expander("📥 Ingreso de Productos", expanded=False):
+            productos = self.db.fetch("productos")
+            if not productos:
+                st.info("No hay productos registrados aún.")
+            else:
+                with st.form("form_ingreso_producto", clear_on_submit=True):
+                    # map display strings a objetos
+                    prod_map = {f"{p.get('nombre','')} ({p.get('barcode','')})": p for p in productos}
+                    seleccion = st.selectbox("Seleccione Producto", list(prod_map.keys()))
+                    cantidad = st.number_input("Cantidad a ingresar", min_value=1, step=1)
+                    submit_ing = st.form_submit_button("Actualizar Stock", use_container_width=True)
+                    if submit_ing:
+                        prod = prod_map.get(seleccion)
+                        if prod:
+                            actual = int(prod.get('stock') or 0)
+                            nuevo = actual + cantidad
+                            self.db.update("productos", {"stock": nuevo}, prod.get('id'))
+                            st.success(f"🔄 Stock de {prod.get('nombre')} actualizado a {nuevo}.")
+                            st.rerun()
+
+        # --- SECCIÓN DE VISTA Y BÚSQUEDA ---
         productos = self.db.fetch("productos")
         
         col_bus, col_print = st.columns([3, 1])
@@ -71,16 +139,13 @@ class ModuloInventario:
         query = col_bus.text_input("🔍 Buscar por nombre o barcode...").lower()
 
         if productos:
-            # Sección de Alertas Rápidas
             bajos = [p for p in productos if int(p.get('stock') or 0) <= int(p.get('stock_minimo') or 0)]
             if bajos:
                 st.error(f"⚠️ {len(bajos)} productos necesitan reposición.")
 
             st.divider()
 
-            # --- LISTADO DE PRODUCTOS ---
             for p in productos:
-                # Búsqueda segura y normalizada
                 nombre_p = str(p.get('nombre', '')).lower()
                 barcode_p = str(p.get('barcode', '')).lower()
                 
@@ -88,18 +153,17 @@ class ModuloInventario:
                     with st.container(border=True):
                         c1, c2, c3 = st.columns([2, 1, 1])
                         
-                        stock = int(p.get('stock') or 0)
-                        s_min = int(p.get('stock_minimo') or 0)
-                        icono = "🔴" if stock <= s_min else "🟢"
+                        stock_actual = int(p.get('stock') or 0)
+                        stock_min = int(p.get('stock_minimo') or 0)
+                        icono = "🔴" if stock_actual <= stock_min else "🟢"
                         
                         c1.write(f"{icono} **{p.get('nombre', 'S/N')}**")
-                        c1.caption(f"Barcode: {p.get('barcode', 'N/A')} | Mín: {s_min}")
+                        c1.caption(f"Barcode: {p.get('barcode', 'N/A')} | Mín: {stock_min}")
                         
-                        c2.write(f"Stock: `{stock}`")
+                        c2.write(f"Stock: `{stock_actual}`")
                         c2.write(f"Precio: `${float(p.get('precio_venta') or 0):.2f}`")
                         
                         with c3:
-                            # Botón con key única para evitar colisiones
                             st.button("📝 Editar", key=f"btn_inv_{p.get('id')}")
 
         # Ejecutor de impresión
